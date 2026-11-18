@@ -66,26 +66,36 @@ mv "$APP/PlugIns/rbserver.xctest/WebDriverAgentRunner" "$APP/PlugIns/rbserver.xc
 /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string rbserver" "$APP/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable rbserver" -c "Set :CFBundleName rbserver" -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/PlugIns/rbserver.xctest/Info.plist"
 
-echo "[build] Patching missing Swift-Testing-family dependencies (not present on iOS 16)..."
+echo "[build] Bundling real iPhoneOS Swift Testing dependencies..."
 FRAMEWORKS="$APP/Frameworks"
-STUB_C="$BUILD_DIR/stub.c"
-: > "$STUB_C"
+PLATFORM="$(xcrun --sdk iphoneos --show-sdk-platform-path)"
 
-xcrun -sdk iphoneos clang -arch arm64 -dynamiclib -miphoneos-version-min=15.0 \
-  -o "$FRAMEWORKS/lib_TestingInterop.dylib" "$STUB_C" \
-  -install_name "@rpath/lib_TestingInterop.dylib"
+REAL_INTEROP="$PLATFORM/Developer/usr/lib/lib_TestingInterop.dylib"
+REAL_FOUNDATION="$PLATFORM/Developer/Library/Frameworks/_Testing_Foundation.framework"
 
-TF_DIR="$FRAMEWORKS/_Testing_Foundation.framework"
-mkdir -p "$TF_DIR"
-xcrun -sdk iphoneos clang -arch arm64 -dynamiclib -miphoneos-version-min=15.0 \
-  -o "$TF_DIR/_Testing_Foundation" "$STUB_C" \
-  -install_name "@rpath/_Testing_Foundation.framework/_Testing_Foundation"
+if [ ! -f "$REAL_INTEROP" ]; then
+    echo "[build] ERROR: real lib_TestingInterop.dylib not found" >&2
+    exit 1
+fi
 
-REAL_FRAMEWORK="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks/_Testing_Foundation.framework"
-cp "$REAL_FRAMEWORK/Info.plist" "$TF_DIR/Info.plist"
-[ -f "$REAL_FRAMEWORK/version.plist" ] && cp "$REAL_FRAMEWORK/version.plist" "$TF_DIR/version.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.rbserver.stub.TestingFoundation" "$TF_DIR/Info.plist"
+if [ ! -f "$REAL_FOUNDATION/_Testing_Foundation" ]; then
+    echo "[build] ERROR: real _Testing_Foundation.framework not found" >&2
+    exit 1
+fi
 
+echo "[build] Checking required Swift Testing symbol..."
+if ! nm -g "$REAL_INTEROP" | grep -q '__swift_testing_getFallbackEventHandler'; then
+    echo "[build] ERROR: required symbol missing from real library" >&2
+    exit 1
+fi
+
+rm -f "$FRAMEWORKS/lib_TestingInterop.dylib"
+cp "$REAL_INTEROP" "$FRAMEWORKS/lib_TestingInterop.dylib"
+
+rm -rf "$FRAMEWORKS/_Testing_Foundation.framework"
+ditto "$REAL_FOUNDATION" "$FRAMEWORKS/_Testing_Foundation.framework"
+
+echo "[build] Swift Testing dependencies copied successfully"
 echo "[build] Writing ad-hoc entitlements ($ENTITLEMENTS)..."
 cat > "$ENTITLEMENTS" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

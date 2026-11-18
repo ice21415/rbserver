@@ -25,6 +25,31 @@ jobs:
           npm install -g appium
           appium driver install xcuitest
 
+      - name: Inspect iPhoneOS Swift Testing libraries
+        run: |
+          echo "=== Xcode ==="
+          xcodebuild -version
+
+          PLATFORM="$(xcrun --sdk iphoneos --show-sdk-platform-path)"
+          echo "Platform: $PLATFORM"
+
+          echo "=== Library paths ==="
+          find "$PLATFORM/Developer" \
+            \( -name 'lib_TestingInterop.dylib' -o -name '_Testing_Foundation.framework' \) \
+            -print 2>/dev/null
+
+          echo "=== Interop symbols ==="
+          INTEROP="$PLATFORM/Developer/usr/lib/lib_TestingInterop.dylib"
+
+          if [ -f "$INTEROP" ]; then
+            file "$INTEROP"
+            xcrun nm -g "$INTEROP" | grep 'swift_testing_getFallbackEventHandler' || true
+          else
+            echo "Interop library not found at expected location"
+          fi
+
+          echo "=== Foundation framework ==="
+          ls -la "$PLATFORM/Developer/Library/Frameworks/_Testing_Foundation.framework" || true
       - name: Build WDA
         run: ./scripts/build_wda.sh
 
